@@ -1,0 +1,75 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Generated data
+data/generated/
+data/output/
+*.csv
+*.jsonl
+
+# Spark
+spark-warehouse/
+metastore_db/
+derby.log
+.checkpoint/
+checkpoints/
+
+# Airflow
+airflow.db
+airflow.cfg
+airflow-webserver.pid
+airflow-scheduler.pid
+airflow/logs/
+
+# PostgreSQL / local database volumes
+postgres-data/
+pgdata/
+
+# Kafka / local broker data
+kafka-data/
+zookeeper-data/
+
+# Docker overrides / local files
+docker-compose.override.yml
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Coverage
+.coverage
+htmlcov/
+
+# Build / distribution
+build/
+dist/
