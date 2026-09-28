@@ -1,4 +1,19 @@
 services:
+  api:
+    build:
+      context: ./api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: fleet
+      POSTGRES_USER: fleet
+      POSTGRES_PASSWORD: fleet
   kafka:
     image: bitnamilegacy/kafka:3.7.1
     hostname: kafka

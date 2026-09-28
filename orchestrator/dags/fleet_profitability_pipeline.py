@@ -4,22 +4,69 @@ import csv
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.operators.python import get_current_context
 
-REPORT_DATE = "2026-09-27"
-EXPENSE_FILE = "/opt/project/data/batch/expenses_20260927.csv.example"
+
 SPARK_CONTAINER = "fleet-spark"
+BATCH_DATA_DIR = "/opt/project/data/batch"
+
+
+def get_run_config():
+    context = get_current_context()
+
+    dag_run = context.get("dag_run")
+
+    # Allow manual demo runs to specify a simulated date.
+    if dag_run and dag_run.conf and dag_run.conf.get("report_date"):
+        report_date = dag_run.conf["report_date"]
+    else:
+        # Scheduled runs use the Airflow logical date.
+        report_date = context["ds"]
+
+    date_compact = report_date.replace("-", "")
+
+    # Prefer a real CSV if available.
+    csv_path = Path(
+        f"{BATCH_DATA_DIR}/expenses_{date_compact}.csv"
+    )
+
+    # Support the current example file during development/demo.
+    example_path = Path(
+        f"{BATCH_DATA_DIR}/expenses_{date_compact}.csv.example"
+    )
+
+    if csv_path.exists():
+        expense_file = str(csv_path)
+    elif example_path.exists():
+        expense_file = str(example_path)
+    else:
+        expense_file = str(csv_path)
+
+    return report_date, expense_file
 
 
 def check_expense_file():
-    path = Path(EXPENSE_FILE)
+    report_date, expense_file = get_run_config()
+
+    path = Path(expense_file)
 
     if not path.exists():
-        raise FileNotFoundError(f"Expense CSV not found: {EXPENSE_FILE}")
+        raise FileNotFoundError(
+            f"No expense CSV found for {report_date}: {expense_file}"
+        )
 
-    print(f"Expense file found: {EXPENSE_FILE}")
+    print(f"Report date: {report_date}")
+    print(f"Expense file found: {expense_file}")
+
+    return {
+        "report_date": report_date,
+        "expense_file": expense_file,
+    }
 
 
 def validate_expense_csv():
+    _, expense_file = get_run_config()
+
     required_columns = {
         "vehicle_id",
         "fuel_cost",
@@ -28,51 +75,66 @@ def validate_expense_csv():
         "service_flag",
     }
 
-    with open(EXPENSE_FILE, newline="", encoding="utf-8") as file:
+    with open(
+        expense_file,
+        newline="",
+        encoding="utf-8",
+    ) as file:
+
         reader = csv.DictReader(file)
 
         if reader.fieldnames is None:
             raise ValueError("Expense CSV has no header")
 
         actual_columns = set(reader.fieldnames)
+
         missing_columns = required_columns - actual_columns
 
         if missing_columns:
             raise ValueError(
-                f"Missing columns: {sorted(missing_columns)}"
+                f"Missing required columns: "
+                f"{sorted(missing_columns)}"
             )
 
         rows = list(reader)
 
     if not rows:
-        raise ValueError("Expense CSV contains no rows")
+        raise ValueError("Expense CSV contains no data rows")
 
-    print(f"CSV validation successful. Rows found: {len(rows)}")
+    print(f"Expense CSV validation successful")
+    print(f"Rows found: {len(rows)}")
 
 
 def run_spark_profitability():
     import docker
 
+    report_date, expense_file = get_run_config()
+
     client = docker.from_env()
 
-    container = client.containers.get(SPARK_CONTAINER)
+    container = client.containers.get(
+        SPARK_CONTAINER
+    )
 
     command = [
         "bash",
         "-lc",
-        """
+        f"""
         mkdir -p /tmp/spark-ivy &&
 
         /opt/spark/bin/spark-submit \
           --conf spark.jars.ivy=/tmp/spark-ivy \
           --packages org.postgresql:postgresql:42.7.4 \
           /opt/project/streaming/jobs/batch_profitability.py \
-          --expenses-path /opt/project/data/batch/expenses_20260927.csv.example \
-          --report-date 2026-09-27
+          --expenses-path {expense_file} \
+          --report-date {report_date}
         """,
     ]
 
-    print("Starting Spark profitability job...")
+    print(
+        f"Starting profitability batch for "
+        f"{report_date}"
+    )
 
     result = container.exec_run(
         command,
@@ -90,14 +152,19 @@ def run_spark_profitability():
 
     if result.exit_code != 0:
         raise RuntimeError(
-            f"Spark job failed with exit code {result.exit_code}"
+            f"Spark profitability job failed "
+            f"with exit code {result.exit_code}"
         )
 
-    print("Spark profitability job completed successfully.")
+    print(
+        "Spark profitability batch completed successfully"
+    )
 
 
 def verify_profitability_rows():
     import psycopg2
+
+    report_date, _ = get_run_config()
 
     connection = psycopg2.connect(
         host="postgres",
@@ -115,19 +182,20 @@ def verify_profitability_rows():
                 FROM vehicle_profitability
                 WHERE report_date = %s;
                 """,
-                (REPORT_DATE,),
+                (report_date,),
             )
 
             count = cursor.fetchone()[0]
 
         print(
-            f"vehicle_profitability rows for "
-            f"{REPORT_DATE}: {count}"
+            f"vehicle_profitability rows "
+            f"for {report_date}: {count}"
         )
 
         if count == 0:
             raise ValueError(
-                "No profitability rows were written."
+                "Spark finished successfully but "
+                "no profitability rows were written."
             )
 
     finally:
@@ -136,11 +204,24 @@ def verify_profitability_rows():
 
 with DAG(
     dag_id="fleet_profitability_pipeline",
-    description="Daily fleet profitability batch pipeline",
+    description=(
+        "Daily reconciliation of vehicle expenses "
+        "with telemetry earnings"
+    ),
+
     start_date=datetime(2026, 1, 1),
-    schedule=None,
+
+    # Once per simulated/business day.
+    schedule="@daily",
+
     catchup=False,
-    tags=["fleet", "batch", "spark"],
+
+    tags=[
+        "fleet",
+        "batch",
+        "spark",
+        "profitability",
+    ],
 ) as dag:
 
     check_file = PythonOperator(
@@ -163,4 +244,9 @@ with DAG(
         python_callable=verify_profitability_rows,
     )
 
-    check_file >> validate_csv >> run_spark >> verify_rows
+    (
+        check_file
+        >> validate_csv
+        >> run_spark
+        >> verify_rows
+    )
