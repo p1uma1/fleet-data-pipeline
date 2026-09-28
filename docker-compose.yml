@@ -44,7 +44,7 @@ services:
   postgres:
     image: postgres:16-alpine
     ports:
-      - "5432:5432"
+      - "5434:5432"
     environment:
       POSTGRES_DB: fleet
       POSTGRES_USER: fleet
