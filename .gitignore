@@ -35,6 +35,8 @@ data/generated/
 data/output/
 *.csv
 *.jsonl
+!*.csv.example
+!data/batch/.gitkeep
 
 # Spark
 spark-warehouse/
