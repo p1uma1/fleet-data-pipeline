@@ -127,7 +127,13 @@ services:
       PYSPARK_PYTHON: python3
       PYSPARK_DRIVER_PYTHON: python3
 
-    command: ["sleep", "infinity"]
+    command:
+      - /opt/spark/bin/spark-submit
+      - --packages
+      - org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.postgresql:postgresql:42.7.4
+      - --conf
+      - spark.sql.shuffle.partitions=4
+      - /opt/project/streaming/jobs/stream_fleet_analytics.py
 
   # --------------------------------------------------
   # Airflow metadata database
@@ -205,6 +211,26 @@ services:
       - ./orchestrator/plugins:/opt/airflow/plugins
       - ./:/opt/project
     command: webserver
+
+  # --------------------------------------------------
+  # producer
+  # --------------------------------------------------
+  producer:
+    build:
+      context: ./ingestion
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+    restart: unless-stopped
+
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+      TELEMETRY_TOPIC: fleet.telemetry
+    
 
   # --------------------------------------------------
   # Airflow Scheduler
