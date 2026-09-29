@@ -77,44 +77,13 @@ from src.transforms import (  # noqa: E402
 
     snapshot_zone_earnings,
 
+    windowed_zone_metrics,
+
 )
 
 logger = get_logger("stream_fleet_analytics", stage="streaming")
 
-def streaming_windowed_zone_metrics(
-    df: DataFrame,
-    watermark: str,
-    window: str,
-) -> DataFrame:
-    """Build streaming-safe window metrics.
 
-    Spark Structured Streaming does not support exact countDistinct() in this
-    stateful aggregation. approx_count_distinct() preserves the intended
-    distinct-count semantics while remaining supported for streaming queries.
-    """
-    return (
-        df.withWatermark("event_ts", watermark)
-        .groupBy(
-            F.window("event_ts", window).alias("window"),
-            F.col("zone_id"),
-            F.col("time_of_day"),
-        )
-        .agg(
-            F.approx_count_distinct("vehicle_id").alias("total_vehicles"),
-            F.approx_count_distinct(
-                F.when(F.col("status") != "idle", F.col("vehicle_id"))
-            ).alias("active_vehicles"),
-            F.approx_count_distinct(
-                F.when(F.col("status") == "idle", F.col("vehicle_id"))
-            ).alias("idle_vehicles"),
-            F.approx_count_distinct(
-                F.when(F.col("status") == "on_trip", F.col("trip_id"))
-            ).alias("trips_in_window"),
-            F.avg("speed").alias("avg_speed"),
-            F.max("fare").alias("live_fare_exposure"),
-            F.count(F.lit(1)).alias("event_count"),
-        )
-    )
 
 # Driver-side streak for the NO_DATA health rule.
 
@@ -482,6 +451,7 @@ def process_window_batch(_spark: SparkSession, batch_df: DataFrame, batch_id: in
 
     log_event(logger, "window_metrics_written", batch_id=batch_id, rows=len(rows))
 
+
 def main() -> None:
 
     spark = build_spark(settings.spark_app_name)
@@ -528,7 +498,7 @@ def main() -> None:
 
     )
 
-    windowed = streaming_windowed_zone_metrics(
+    windowed = windowed_zone_metrics(
 
         clean_and_enrich(parse_telemetry(telemetry_stream(spark))),
 

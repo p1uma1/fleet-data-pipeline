@@ -170,7 +170,12 @@ def snapshot_zone_earnings(events: DataFrame) -> DataFrame:
 
 
 def windowed_zone_metrics(events: DataFrame, watermark: str, window: str) -> DataFrame:
-    """1-minute tumbling windows with watermark — Spark Structured Streaming aggregation."""
+    """Tumbling window zone metrics — works in both streaming and batch contexts.
+
+    Uses approx_count_distinct() instead of countDistinct() because Spark
+    Structured Streaming does not support exact distinct aggregations in
+    stateful streaming queries.
+    """
     return (
         events.withWatermark("event_ts", watermark)
         .groupBy(
@@ -179,14 +184,14 @@ def windowed_zone_metrics(events: DataFrame, watermark: str, window: str) -> Dat
             F.col("time_of_day"),
         )
         .agg(
-            F.countDistinct("vehicle_id").alias("total_vehicles"),
-            F.countDistinct(
+            F.approx_count_distinct("vehicle_id").alias("total_vehicles"),
+            F.approx_count_distinct(
                 F.when(F.col("status") != F.lit("idle"), F.col("vehicle_id"))
             ).alias("active_vehicles"),
-            F.countDistinct(
+            F.approx_count_distinct(
                 F.when(F.col("status") == F.lit("idle"), F.col("vehicle_id"))
             ).alias("idle_vehicles"),
-            F.countDistinct(
+            F.approx_count_distinct(
                 F.when(F.col("status") == F.lit("on_trip"), F.col("trip_id"))
             ).alias("trips_in_window"),
             F.avg("speed").alias("avg_speed"),
