@@ -57,11 +57,13 @@ def clean_and_enrich(events: DataFrame) -> DataFrame:
     )
 
     zone_row = F.least(
-        F.greatest(F.floor((F.col("lat") - F.lit(MIN_LAT)) / F.lit(lat_span)).cast(IntegerType()), F.lit(0)),
+        F.greatest(F.floor((F.col("lat") - F.lit(MIN_LAT)) /
+                   F.lit(lat_span)).cast(IntegerType()), F.lit(0)),
         F.lit(GRID_SIZE - 1),
     )
     zone_col = F.least(
-        F.greatest(F.floor((F.col("lon") - F.lit(MIN_LON)) / F.lit(lon_span)).cast(IntegerType()), F.lit(0)),
+        F.greatest(F.floor((F.col("lon") - F.lit(MIN_LON)) /
+                   F.lit(lon_span)).cast(IntegerType()), F.lit(0)),
         F.lit(GRID_SIZE - 1),
     )
 
@@ -75,7 +77,8 @@ def clean_and_enrich(events: DataFrame) -> DataFrame:
 
     return cleaned.withColumn(
         "zone_id",
-        F.concat(F.lit("Z"), zone_row.cast(StringType()), zone_col.cast(StringType())),
+        F.concat(F.lit("Z"), zone_row.cast(StringType()),
+                 zone_col.cast(StringType())),
     ).withColumn("time_of_day", time_of_day)
 
 
@@ -101,8 +104,10 @@ def snapshot_fleet_metrics(events: DataFrame, window_seconds: int = 10) -> DataF
 
     totals = latest.agg(
         F.countDistinct("vehicle_id").alias("total_vehicles"),
-        F.sum(F.when(F.col("status") != F.lit("idle"), 1).otherwise(0)).alias("active_vehicles"),
-        F.sum(F.when(F.col("status") == F.lit("idle"), 1).otherwise(0)).alias("idle_vehicles"),
+        F.sum(F.when(F.col("status") != F.lit("idle"),
+              1).otherwise(0)).alias("active_vehicles"),
+        F.sum(F.when(F.col("status") == F.lit("idle"),
+              1).otherwise(0)).alias("idle_vehicles"),
         F.avg("speed").alias("avg_speed"),
         F.count(F.lit(1)).alias("event_count"),
         F.min("event_ts").alias("window_start"),
@@ -145,7 +150,8 @@ def snapshot_zone_earnings(events: DataFrame) -> DataFrame:
     )
 
     vehicle_stats = latest.groupBy("zone_id", "time_of_day").agg(
-        F.sum(F.when(F.col("status") != F.lit("idle"), 1).otherwise(0)).alias("active_vehicles"),
+        F.sum(F.when(F.col("status") != F.lit("idle"),
+              1).otherwise(0)).alias("active_vehicles"),
         F.avg("speed").alias("avg_speed"),
         F.count(F.lit(1)).alias("event_count"),
         F.min("event_ts").alias("window_start"),
@@ -214,21 +220,29 @@ def windowed_zone_metrics(events: DataFrame, watermark: str, window: str) -> Dat
             "trips_in_window",
             (F.col("trips_in_window") * F.lit(60.0)).alias("trips_per_hour"),
             "avg_speed",
-            F.coalesce(F.col("live_fare_exposure"), F.lit(0.0)).alias("live_fare_exposure"),
+            F.coalesce(F.col("live_fare_exposure"), F.lit(
+                0.0)).alias("live_fare_exposure"),
             "event_count",
         )
     )
 
 
 def daily_trip_earnings(silver: DataFrame) -> DataFrame:
-    """Fare is cumulative per trip in Person 1's simulator, so take max(fare) per trip."""
-    return (
-        silver.filter(F.col("trip_id").isNotNull() & (F.col("trip_id") != ""))
+    """Calculate per-vehicle earnings from trips that generated fare."""
+    per_trip = (
+        silver.filter(
+            F.col("trip_id").isNotNull()
+            & (F.col("trip_id") != "")
+        )
         .groupBy("vehicle_id", "trip_id")
         .agg(F.max("fare").alias("trip_fare"))
-        .groupBy("vehicle_id")
+        .filter(F.col("trip_fare") > 0)
+    )
+
+    return (
+        per_trip.groupBy("vehicle_id")
         .agg(
             F.sum("trip_fare").alias("earnings"),
-            F.count("trip_id").alias("trip_count"),
+            F.count("*").alias("trip_count"),
         )
     )
