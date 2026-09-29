@@ -30,7 +30,10 @@ class FleetQueryListener(StreamingQueryListener):
             batch_id=progress.batchId,
             input_rows=progress.numInputRows,
             duration_ms=duration.get("triggerExecution"),
-            sources=[s.get("description") for s in (progress.sources or [])],
+            sources=[
+                getattr(s, "description", None)
+                for s in (progress.sources or [])
+            ],
         )
 
     def onQueryTerminated(self, event):  # type: ignore[no-untyped-def]
